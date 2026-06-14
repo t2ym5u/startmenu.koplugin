@@ -1,4 +1,5 @@
 local _dir = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
+local _plugins_dir = _dir:match("^(.*)/[^/]+/$") or (_dir .. "..")
 package.path = _dir .. "?.lua;" .. _dir .. "common/?.lua;" .. package.path
 
 local ButtonDialog    = require("ui/widget/buttondialog")
@@ -9,26 +10,15 @@ local UIManager       = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _               = require("gettext")
 
--- ---------------------------------------------------------------------------
--- All available games, in display order.
--- `id` must match the target plugin's `name` field exactly.
--- ---------------------------------------------------------------------------
-
-local ALL_GAMES = {
-    { id = "sudoku",      label = _("Sudoku") },
-    { id = "2048",        label = _("2048") },
-    { id = "minesweeper", label = _("Minesweeper") },
-    { id = "mastermind",  label = _("Mastermind") },
-    { id = "futoshiki",   label = _("Futoshiki") },
-    { id = "hitori",      label = _("Hitori") },
-    { id = "kakuro",      label = _("Kakuro") },
-    { id = "kenken",      label = _("KenKen") },
-    { id = "nonogram",    label = _("Nonogram") },
-    { id = "numberlink",  label = _("NumberLink") },
-    { id = "nurikabe",    label = _("Nurikabe") },
+-- Plugin IDs that are infrastructure, not games; excluded from scanning.
+local NON_GAME_IDS = {
+    startmenu     = true,
+    pluginmanager = true,
+    _skeleton     = true,
 }
 
--- Games shown by default (id → true).
+-- Games shown by default when they are first discovered (id → true).
+-- All other discovered games default to disabled.
 local DEFAULT_ENABLED = {
     sudoku      = true,
     ["2048"]    = true,
@@ -43,7 +33,53 @@ local DEFAULT_ENABLED = {
 local StartMenu = WidgetContainer:extend{
     name        = "startmenu",
     is_doc_only = false,
+    -- _game_plugins : cached result of the last filesystem scan
 }
+
+-- ---------------------------------------------------------------------------
+-- Game-plugin discovery
+-- ---------------------------------------------------------------------------
+
+-- Scan the plugins directory and return a sorted list of { id, label } for
+-- every installed game plugin (i.e. any *.koplugin that is not in NON_GAME_IDS
+-- and has a readable _meta.lua with a name field).
+local function scanGamePlugins()
+    local ok, lfs = pcall(require, "libs/libkoreader-lfs")
+    if not ok then ok, lfs = pcall(require, "lfs") end
+    if not ok then return {} end
+
+    local games   = {}
+    local ok2, iter, dir_obj = pcall(lfs.dir, _plugins_dir)
+    if not ok2 or not iter then return {} end
+
+    for entry in iter, dir_obj do
+        if entry:match("%.koplugin$") then
+            local meta_path = _plugins_dir .. "/" .. entry .. "/_meta.lua"
+            local f = io.open(meta_path, "r")
+            if f then
+                local src      = f:read("*a"); f:close()
+                local name     = src:match('name%s*=%s*"([^"]+)"')
+                local fullname = src:match('fullname%s*=[^"]*"([^"]*)"')
+                if name and not NON_GAME_IDS[name] then
+                    games[#games + 1] = { id = name, label = fullname or name }
+                end
+            end
+        end
+    end
+
+    table.sort(games, function(a, b) return a.label < b.label end)
+    return games
+end
+
+-- Returns the cached game list, rebuilding it lazily on first access.
+-- The cache lives for one KOReader session; plugins installed/removed during
+-- a session require a restart anyway to take effect.
+function StartMenu:getGamePlugins()
+    if not self._game_plugins then
+        self._game_plugins = scanGamePlugins()
+    end
+    return self._game_plugins
+end
 
 -- ---------------------------------------------------------------------------
 -- Settings helpers
@@ -57,8 +93,6 @@ function StartMenu:ensureSettings()
     end
 end
 
--- Safe getter: correctly handles stored `false` values (avoids the
--- `v ~= nil and v or default` pitfall where false falls through to default).
 function StartMenu:getSetting(key, default)
     self:ensureSettings()
     local v = self.settings:readSetting(key)
@@ -89,10 +123,10 @@ function StartMenu:isGameEnabled(gid)
     return saved[gid] == true
 end
 
--- Toggles game `gid` and writes the full state back to disk.
+-- Toggles game `gid` and persists the full enabled-state map.
 function StartMenu:toggleGame(gid)
     local new_state = {}
-    for _, g in ipairs(ALL_GAMES) do
+    for _, g in ipairs(self:getGamePlugins()) do
         new_state[g.id] = self:isGameEnabled(g.id)
     end
     new_state[gid] = not new_state[gid]
@@ -102,7 +136,7 @@ end
 -- Returns the list of { id, label } entries that are currently enabled.
 function StartMenu:enabledGames()
     local result = {}
-    for _, g in ipairs(ALL_GAMES) do
+    for _, g in ipairs(self:getGamePlugins()) do
         if self:isGameEnabled(g.id) then
             result[#result + 1] = g
         end
@@ -119,7 +153,6 @@ function StartMenu:init()
     self.ui.menu:registerToMainMenu(self)
 
     -- Only fire in the FileManager context (no open document).
-    -- ReaderUI sets self.ui.document; FileManager does not.
     if not self.ui.document and self:getSetting("enabled", true) then
         UIManager:scheduleIn(0.5, function()
             self:showStartupMenu()
@@ -150,7 +183,7 @@ function StartMenu:addToMainMenu(menu_items)
         },
     }
 
-    for _, g in ipairs(ALL_GAMES) do
+    for _, g in ipairs(self:getGamePlugins()) do
         local gid = g.id
         sub[#sub + 1] = {
             text         = g.label,
@@ -171,57 +204,42 @@ end
 -- ---------------------------------------------------------------------------
 
 function StartMenu:showStartupMenu()
-    -- Prevent a second dialog if one is already open.
     if self._dialog then return end
 
     local games = self:enabledGames()
-
-    -- Nothing to offer if every game is disabled.
     if #games == 0 then return end
 
-    local dialog  -- forward declaration; captured by button closures below
+    local dialog
 
     local buttons = {
-        -- "Read" always occupies the first row.
-        {
-            {
-                text     = _("Read"),
-                callback = function()
-                    UIManager:close(dialog)
-                end,
-            },
-        },
+        {{
+            text     = _("Read"),
+            callback = function() UIManager:close(dialog) end,
+        }},
     }
 
     for _, g in ipairs(games) do
         local gid    = g.id
         local glabel = g.label
-        buttons[#buttons + 1] = {
-            {
-                text     = glabel,
-                callback = function()
-                    UIManager:close(dialog)
-                    -- Small delay so the dialog repaint completes before the
-                    -- game screen is pushed on top.
-                    UIManager:scheduleIn(0.1, function()
-                        self:launchGame(gid, glabel)
-                    end)
-                end,
-            },
-        }
+        buttons[#buttons + 1] = {{
+            text     = glabel,
+            callback = function()
+                UIManager:close(dialog)
+                UIManager:scheduleIn(0.1, function()
+                    self:launchGame(gid, glabel)
+                end)
+            end,
+        }}
     end
 
     dialog = ButtonDialog:new{
-        title              = _("What would you like to do?"),
-        buttons            = buttons,
-        -- Clear our reference when the dialog is closed by any means.
-        dismissable        = true,
+        title       = _("What would you like to do?"),
+        buttons     = buttons,
+        dismissable = true,
     }
 
-    -- Keep a reference so we can guard against duplicates and close externally.
     self._dialog = dialog
 
-    -- Wrap close to nil out our reference regardless of how the dialog closes.
     local orig_free = dialog.free
     dialog.free = function(d)
         self._dialog = nil
@@ -242,8 +260,6 @@ end
 -- Game launcher
 -- ---------------------------------------------------------------------------
 
--- Plugins are stored by name on the parent UI widget by KOReader's plugin
--- loader, so self.ui["sudoku"] is the live Sudoku plugin instance, etc.
 function StartMenu:launchGame(gid, glabel)
     local plugin = self.ui[gid]
     if plugin and type(plugin.showGame) == "function" then
