@@ -1,6 +1,6 @@
 local _dir = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
 local _plugins_dir = _dir:match("^(.*)/[^/]+/$") or (_dir .. "..")
-package.path = _dir .. "?.lua;" .. _dir .. "common/?.lua;" .. _dir .. "../game-common/?.lua;" .. package.path
+package.path = _dir .. "?.lua;" .. _dir .. "common/?.lua;" .. package.path
 
 local ButtonDialog    = require("ui/widget/buttondialog")
 local DataStorage     = require("datastorage")
