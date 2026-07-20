@@ -2,13 +2,23 @@ local _dir = debug.getinfo(1, "S").source:sub(2):match("(.*[/\\])") or "./"
 local _plugins_dir = _dir:match("^(.*)/[^/]+/$") or (_dir .. "..")
 package.path = _dir .. "?.lua;" .. _dir .. "common/?.lua;" .. package.path
 
+local function lrequire(name)
+    local key = _dir .. name
+    if not package.loaded[key] then
+        package.loaded[key] = assert(loadfile(_dir .. name .. ".lua"))()
+    end
+    return package.loaded[key]
+end
+
 local ButtonDialog    = require("ui/widget/buttondialog")
 local DataStorage     = require("datastorage")
 local InfoMessage     = require("ui/widget/infomessage")
 local LuaSettings     = require("luasettings")
 local UIManager       = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
-local _               = require("gettext")
+local _               = require("i18n")
+
+require("i18n").extend(lrequire("i18n_fr"))
 
 -- Plugin IDs that are infrastructure, not games; excluded from scanning.
 local NON_GAME_IDS = {
