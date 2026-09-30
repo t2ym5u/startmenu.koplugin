@@ -40,7 +40,7 @@ local StartMenu = WidgetContainer:extend{
 
 -- Scan the plugins directory and return a sorted list of { id, label } for
 -- every installed game plugin (i.e. any *.koplugin that is not in NON_GAME_IDS
--- and has a readable _meta.lua with a name field).
+-- and is one of ours rather than one of KOReader's own).
 local function scanGamePlugins()
     local ok, lfs = pcall(require, "libs/libkoreader-lfs")
     if not ok then ok, lfs = pcall(require, "lfs") end
@@ -52,11 +52,18 @@ local function scanGamePlugins()
 
     for entry in iter, dir_obj do
         if entry:match("%.koplugin$") then
-            local meta_path = _plugins_dir .. "/" .. entry .. "/_meta.lua"
-            local f = io.open(meta_path, "r")
+            local pdir = _plugins_dir .. "/" .. entry
+            local id   = entry:gsub("%.koplugin$", "")
+            -- Shipping a common/ dir (game-common or sudoku-common) is what
+            -- tells this fleet apart from KOReader's own plugins, none of
+            -- which have one. checkers is the single game with no shared
+            -- library of its own.
+            local is_ours = id == "checkers"
+                or lfs.attributes(pdir .. "/common", "mode") == "directory"
+            local f = is_ours and io.open(pdir .. "/_meta.lua", "r")
             if f then
                 local src  = f:read("*a"); f:close()
-                local game = Games.parseMeta(src, NON_GAME_IDS)
+                local game = Games.parseMeta(src, id, NON_GAME_IDS)
                 if game then games[#games + 1] = game end
             end
         end

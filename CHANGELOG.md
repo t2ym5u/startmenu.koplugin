@@ -6,6 +6,16 @@ Reconstructed from this repository's git history: each release lists the
 feature and fix commits it carried. Version bumps, screenshot additions
 and CI syncs are left out.
 
+## [1.1.13] - 2026-09-30
+
+### Fixed
+- The startup menu listed no games, for the same reason as Dashboard: games
+  were identified by a `name` field in their `_meta.lua` that none of them
+  declares, and that KOReader 2026.03 (PR #15096) deprecated in favour of the
+  directory name. `Games.parseMeta()` now takes the id from the directory and
+  reads the `_meta.lua` only for the label.
+- `dashboard` and `opdsdir` are now treated as infrastructure, not games.
+
 ## [1.1.12] - 2026-09-30
 
 ### Fixed

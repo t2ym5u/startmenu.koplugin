@@ -12,57 +12,70 @@ describe("Games.parseMeta", function()
         Games = require("games")
     end)
 
-    it("reads the id and the label out of a _meta.lua", function()
+    it("takes the id from the directory, not from the _meta.lua source", function()
+        -- KOReader 2026.03 (PR #15096) made the directory name the plugin id
+        -- and deprecated _meta.lua's `name`. A stale `name` in the source must
+        -- not win over the directory it was found in.
         local g = Games.parseMeta([[
             return {
-                name = "sokoban",
+                name = "killer_sudoku",
+                fullname = _("Killer Sudoku"),
+            }
+        ]], "sudokukiller")
+        assert.are.equal("sudokukiller", g.id)
+        assert.are.equal("Killer Sudoku", g.label)
+    end)
+
+    it("reads the label out of a _meta.lua", function()
+        local g = Games.parseMeta([[
+            return {
                 fullname = _("Sokoban"),
                 description = _("Push the crates onto the targets."),
             }
-        ]])
+        ]], "sokoban")
         assert.are.equal("sokoban", g.id)
         assert.are.equal("Sokoban", g.label)
     end)
 
     it("reads a fullname that is a plain string, not a _() call", function()
-        local g = Games.parseMeta('return { name = "hanoi", fullname = "Tower of Hanoi" }')
+        local g = Games.parseMeta('return { fullname = "Tower of Hanoi" }', "hanoi")
         assert.are.equal("Tower of Hanoi", g.label)
     end)
 
     it("falls back to the id when there is no fullname", function()
-        local g = Games.parseMeta('return { name = "hanoi" }')
+        local g = Games.parseMeta('return { description = _("x") }', "hanoi")
         assert.are.equal("hanoi", g.label)
     end)
 
     it("falls back to the id rather than showing a blank row", function()
-        local g = Games.parseMeta('return { name = "hanoi", fullname = _("") }')
+        local g = Games.parseMeta('return { fullname = _("") }', "hanoi")
+        assert.are.equal("hanoi", g.label)
+    end)
+
+    it("still labels a game whose _meta.lua is unreadable", function()
+        -- The directory alone is enough to launch it; only the label is lost.
+        local g = Games.parseMeta(nil, "hanoi")
+        assert.are.equal("hanoi", g.id)
         assert.are.equal("hanoi", g.label)
     end)
 
     it("ignores infrastructure plugins", function()
-        assert.is_nil(Games.parseMeta('return { name = "startmenu", fullname = "Start Menu" }'))
-        assert.is_nil(Games.parseMeta('return { name = "pluginmanager" }'))
-        assert.is_nil(Games.parseMeta('return { name = "_skeleton" }'))
+        assert.is_nil(Games.parseMeta('return { fullname = "Start Menu" }', "startmenu"))
+        assert.is_nil(Games.parseMeta("", "pluginmanager"))
+        assert.is_nil(Games.parseMeta("", "dashboard"))
+        assert.is_nil(Games.parseMeta("", "opdsdir"))
+        assert.is_nil(Games.parseMeta("", "_skeleton"))
     end)
 
-    it("does not read the `name` inside `fullname` as the plugin id", function()
-        -- A plain-string fullname declared before name used to satisfy the
-        -- name pattern, and the plugin id became its title.
-        assert.is_nil(Games.parseMeta('return { fullname = "Nameless" }'))
-        local g = Games.parseMeta('return { fullname = "Tower of Hanoi", name = "hanoi" }')
-        assert.are.equal("hanoi", g.id)
-        assert.are.equal("Tower of Hanoi", g.label)
-    end)
-
-    it("ignores a _meta.lua with no name at all", function()
-        assert.is_nil(Games.parseMeta(""))
-        assert.is_nil(Games.parseMeta(nil))
+    it("ignores a directory with no usable id", function()
+        assert.is_nil(Games.parseMeta('return { fullname = "x" }', nil))
+        assert.is_nil(Games.parseMeta('return { fullname = "x" }', ""))
     end)
 
     it("takes the ids of the real plugins as written", function()
         -- 2048's id is numeric-looking and quoted as a key elsewhere; make sure
         -- nothing along the way turns it into a number or drops it.
-        local g = Games.parseMeta('return { name = "2048", fullname = _("2048") }')
+        local g = Games.parseMeta('return { fullname = _("2048") }', "2048")
         assert.are.equal("2048", g.id)
         assert.are.equal("string", type(g.id))
     end)
