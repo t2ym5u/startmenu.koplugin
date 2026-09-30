@@ -6,6 +6,23 @@ Reconstructed from this repository's git history: each release lists the
 feature and fix commits it carried. Version bumps, screenshot additions
 and CI syncs are left out.
 
+## [1.1.12] - 2026-09-30
+
+### Fixed
+- The plugin id was matched with a pattern that also matched the tail of
+  `fullname`. No plugin trips it today, but a `_meta.lua` declaring a
+  plain-string `fullname` before `name` would have taken the title as the id,
+  and the game would not launch.
+- An empty `fullname` now falls back to the id instead of rendering a blank row.
+
+### Changed
+- Game discovery and enable-state resolution move to `games.lua`.
+
+### Added
+- A spec covering the three-way enable state -- on, off, never touched -- and
+  in particular that a game installed since the last toggle falls back to its
+  default rather than to hidden.
+
 ## [1.1.11] - 2026-08-05
 
 ### Added
