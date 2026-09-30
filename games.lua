@@ -11,6 +11,8 @@ local Games = {}
 Games.NON_GAME_IDS = {
     startmenu     = true,
     pluginmanager = true,
+    dashboard     = true,
+    opdsdir       = true,
     _skeleton     = true,
 }
 
@@ -23,19 +25,21 @@ Games.DEFAULT_ENABLED = {
     mastermind  = true,
 }
 
--- Pull { id, label } out of a _meta.lua source. Returns nil for anything that
--- has no name, or whose name is infrastructure rather than a game.
-function Games.parseMeta(src, non_game_ids)
-    if type(src) ~= "string" then return nil end
+-- Build { id, label } for one plugin. Returns nil for infrastructure.
+--
+-- `id` is the plugin directory's basename, and that is deliberate: this used
+-- to read a `name` field out of the _meta.lua source, which none of these
+-- plugins actually declares -- so the menu came up empty -- and which KOReader
+-- 2026.03 (PR #15096) deprecated anyway, PluginLoader now overwriting it with
+-- the directory name. `src` is the _meta.lua source, read only for the label.
+function Games.parseMeta(src, id, non_game_ids)
+    if type(id) ~= "string" or id == "" then return nil end
+    if (non_game_ids or Games.NON_GAME_IDS)[id] then return nil end
     -- %f[%w] is a frontier pattern: it anchors to the start of the word, so
-    -- this matches `name =` but not the `name` inside `fullname =`. Without it
-    -- a _meta.lua that puts a plain-string fullname first takes the title as
-    -- the plugin id, and the game cannot be launched.
-    local name = src:match('%f[%w]name%s*=%s*"([^"]+)"')
-    if not name then return nil end
-    if (non_game_ids or Games.NON_GAME_IDS)[name] then return nil end
-    local fullname = src:match('%f[%w]fullname%s*=[^"]*"([^"]*)"')
-    return { id = name, label = (fullname and #fullname > 0) and fullname or name }
+    -- `fullname =` is matched here and not some other key ending in "fullname".
+    local fullname = type(src) == "string"
+        and src:match('%f[%w]fullname%s*=[^"]*"([^"]*)"') or nil
+    return { id = id, label = (fullname and #fullname > 0) and fullname or id }
 end
 
 -- Does game `gid` belong in the startup menu?
