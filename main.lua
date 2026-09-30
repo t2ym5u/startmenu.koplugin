@@ -20,21 +20,9 @@ local _               = require("i18n")
 
 require("i18n").extend(lrequire("i18n_fr"))
 
--- Plugin IDs that are infrastructure, not games; excluded from scanning.
-local NON_GAME_IDS = {
-    startmenu     = true,
-    pluginmanager = true,
-    _skeleton     = true,
-}
-
--- Games shown by default when they are first discovered (id → true).
--- All other discovered games default to disabled.
-local DEFAULT_ENABLED = {
-    sudoku      = true,
-    ["2048"]    = true,
-    minesweeper = true,
-    mastermind  = true,
-}
+local Games = lrequire("games")
+local NON_GAME_IDS   = Games.NON_GAME_IDS
+local DEFAULT_ENABLED = Games.DEFAULT_ENABLED
 
 -- ---------------------------------------------------------------------------
 -- StartMenu plugin
@@ -67,18 +55,14 @@ local function scanGamePlugins()
             local meta_path = _plugins_dir .. "/" .. entry .. "/_meta.lua"
             local f = io.open(meta_path, "r")
             if f then
-                local src      = f:read("*a"); f:close()
-                local name     = src:match('name%s*=%s*"([^"]+)"')
-                local fullname = src:match('fullname%s*=[^"]*"([^"]*)"')
-                if name and not NON_GAME_IDS[name] then
-                    games[#games + 1] = { id = name, label = fullname or name }
-                end
+                local src  = f:read("*a"); f:close()
+                local game = Games.parseMeta(src, NON_GAME_IDS)
+                if game then games[#games + 1] = game end
             end
         end
     end
 
-    table.sort(games, function(a, b) return a.label < b.label end)
-    return games
+    return Games.sorted(games)
 end
 
 -- Returns the cached game list, rebuilding it lazily on first access.
@@ -123,24 +107,14 @@ end
 -- Returns true if game `gid` should appear in the startup menu.
 -- Falls back to DEFAULT_ENABLED for games that have never been toggled.
 function StartMenu:isGameEnabled(gid)
-    local saved = self:getSetting("enabled_games", nil)
-    if not saved then
-        return DEFAULT_ENABLED[gid] == true
-    end
-    if saved[gid] == nil then
-        return DEFAULT_ENABLED[gid] == true
-    end
-    return saved[gid] == true
+    return Games.isEnabled(gid, self:getSetting("enabled_games", nil), DEFAULT_ENABLED)
 end
 
 -- Toggles game `gid` and persists the full enabled-state map.
 function StartMenu:toggleGame(gid)
-    local new_state = {}
-    for _, g in ipairs(self:getGamePlugins()) do
-        new_state[g.id] = self:isGameEnabled(g.id)
-    end
-    new_state[gid] = not new_state[gid]
-    self:saveSetting("enabled_games", new_state)
+    local saved = self:getSetting("enabled_games", nil)
+    self:saveSetting("enabled_games",
+        Games.toggled(self:getGamePlugins(), gid, saved, DEFAULT_ENABLED))
 end
 
 -- Returns the list of { id, label } entries that are currently enabled.
